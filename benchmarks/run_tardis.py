@@ -4,7 +4,8 @@ Basic TARDIS Benchmark.
 
 from benchmarks.benchmark_base import BenchmarkBase
 from tardis import run_tardis
-from tardis.io.configuration.config_reader import Configuration
+from tardis.io.atom_data import AtomData
+
 
 
 class BenchmarkRunTardis(BenchmarkBase):
@@ -12,14 +13,20 @@ class BenchmarkRunTardis(BenchmarkBase):
     Class to benchmark the `run tardis` function.
     """
 
-    def __init__(self):
-        super().__init__()
-        self.config = None
+    repeat = 2
 
     def setup(self):
-        filename = "data/tardis_configv1_benchmark.yml"
-        path = self.get_relative_path(filename)
-        self.config = Configuration.from_yaml(path)
+        self.config = self.config_verysimple
+        self.atom_data = AtomData.from_hdf(self.atomic_data_fname)
 
     def time_run_tardis(self):
-        run_tardis(self.config, log_level="ERROR", show_progress_bars=False)
+        run_tardis(
+            self.config, atom_data=self.atom_data, show_convergence_plots=False
+        )
+
+    def time_run_tardis_rpacket_tracking(self):
+        run_tardis(
+            self.config_rpacket_tracking,
+            atom_data=self.atom_data,
+            show_convergence_plots=False,
+        )

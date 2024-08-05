@@ -1,5 +1,6 @@
-from numba import float64, int64
+from numba import float64, int64, njit
 from numba.experimental import jitclass
+from numba.typed import List
 import numpy as np
 import pandas as pd
 
@@ -15,6 +16,7 @@ rpacket_tracker_spec = [
     ("shell_id", int64[:]),
     ("interaction_type", int64[:]),
     ("num_interactions", int64),
+    ("extend_factor", int64),
 ]
 
 
@@ -35,7 +37,7 @@ class RPacketTracker(object):
         r : float
             Radius of the shell where the RPacket is present
         nu : float
-            Luminosity of the RPacket
+            Frequency of the RPacket
         mu : float
             Cosine of the angle made by the direction of movement of the RPacket from its original direction
         energy : float
@@ -46,6 +48,8 @@ class RPacketTracker(object):
             Type of interaction the rpacket undergoes
         num_interactions : int
             Internal counter for the interactions that a particular RPacket undergoes
+        extend_factor : int
+            The factor by which to extend the properties array when the size limit is reached
     """
 
     def __init__(self, length):
@@ -60,34 +64,27 @@ class RPacketTracker(object):
         self.shell_id = np.empty(self.length, dtype=np.int64)
         self.interaction_type = np.empty(self.length, dtype=np.int64)
         self.num_interactions = 0
+        self.extend_factor = 2
+
+    def extend_array(self, array, array_length):
+        temp_array = np.empty(
+            array_length * self.extend_factor, dtype=array.dtype
+        )
+        temp_array[:array_length] = array
+        return temp_array
 
     def track(self, r_packet):
         if self.num_interactions >= self.length:
-            temp_length = self.length * 2
-            temp_status = np.empty(temp_length, dtype=np.int64)
-            temp_r = np.empty(temp_length, dtype=np.float64)
-            temp_nu = np.empty(temp_length, dtype=np.float64)
-            temp_mu = np.empty(temp_length, dtype=np.float64)
-            temp_energy = np.empty(temp_length, dtype=np.float64)
-            temp_shell_id = np.empty(temp_length, dtype=np.int64)
-            temp_interaction_type = np.empty(temp_length, dtype=np.int64)
-
-            temp_status[: self.length] = self.status
-            temp_r[: self.length] = self.r
-            temp_nu[: self.length] = self.nu
-            temp_mu[: self.length] = self.mu
-            temp_energy[: self.length] = self.energy
-            temp_shell_id[: self.length] = self.shell_id
-            temp_interaction_type[: self.length] = self.interaction_type
-
-            self.status = temp_status
-            self.r = temp_r
-            self.nu = temp_nu
-            self.mu = temp_mu
-            self.energy = temp_energy
-            self.shell_id = temp_shell_id
-            self.interaction_type = temp_interaction_type
-            self.length = temp_length
+            self.status = self.extend_array(self.status, self.length)
+            self.r = self.extend_array(self.r, self.length)
+            self.nu = self.extend_array(self.nu, self.length)
+            self.mu = self.extend_array(self.mu, self.length)
+            self.energy = self.extend_array(self.energy, self.length)
+            self.shell_id = self.extend_array(self.shell_id, self.length)
+            self.interaction_type = self.extend_array(
+                self.interaction_type, self.length
+            )
+            self.length = self.length * self.extend_factor
 
         self.index = r_packet.index
         self.seed = r_packet.seed
@@ -156,3 +153,89 @@ def rpacket_trackers_to_dataframe(rpacket_trackers):
         index=pd.MultiIndex.from_arrays(index_array, names=["index", "step"]),
         columns=df_dtypes.names,
     )
+
+
+rpacket_last_interaction_tracker_spec = [
+    ("index", int64),
+    ("r", float64),
+    ("nu", float64),
+    ("energy", float64),
+    ("shell_id", int64),
+    ("interaction_type", int64),
+]
+
+
+@jitclass(rpacket_last_interaction_tracker_spec)
+class RPacketLastInteractionTracker(object):
+    """
+    Numba JITCLASS for storing the last interaction the RPacket undergoes.
+    Parameters
+    ----------
+        index : int
+            Index position of each RPacket
+        r : float
+            Radius of the shell where the RPacket is present
+        nu : float
+            Frequency of the RPacket
+        energy : float
+            Energy possessed by the RPacket
+        shell_id : int
+            Current Shell No in which the last interaction happened
+        interaction_type: int
+            Type of interaction the rpacket undergoes
+    """
+
+    def __init__(self):
+        self.index = -1
+        self.r = -1.0
+        self.nu = 0.0
+        self.energy = 0.0
+        self.shell_id = -1
+        self.interaction_type = -1
+
+    def track(self, r_packet):
+        self.index = r_packet.index
+        self.r = r_packet.r
+        self.nu = r_packet.nu
+        self.energy = r_packet.energy
+        self.shell_id = r_packet.current_shell_id
+        self.interaction_type = r_packet.last_interaction_type
+
+    # To make it compatible with RPacketTracker
+    def finalize_array(self):
+        pass
+
+
+@njit
+def generate_rpacket_tracker_list(no_of_packets, length):
+    """
+    Parameters
+    ----------
+    no_of_packets : The count of RPackets that are sent in the ejecta
+    length : initial length of the tracking array
+
+    Returns
+    -------
+    A list containing RPacketTracker for each RPacket
+    """
+    rpacket_trackers = List()
+    for i in range(no_of_packets):
+        rpacket_trackers.append(RPacketTracker(length))
+    return rpacket_trackers
+
+
+@njit
+def generate_rpacket_last_interaction_tracker_list(no_of_packets):
+    """
+    Parameters
+    ----------
+    no_of_packets : The count of RPackets that are sent in the ejecta
+
+    Returns
+    -------
+    A list containing RPacketLastInteractionTracker for each RPacket
+    """
+    rpacket_trackers = List()
+    for i in range(no_of_packets):
+        rpacket_trackers.append(RPacketLastInteractionTracker())
+    return rpacket_trackers
