@@ -172,4 +172,4 @@ class PositroniumSampler:
             self.quantile_function(np.random.random(n_samples))
             * const.m_e.cgs.value
             * const.c.cgs.value**2
-        )
+        ) * u.erg.to(u.keV)

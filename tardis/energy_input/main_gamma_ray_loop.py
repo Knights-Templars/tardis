@@ -138,6 +138,7 @@ def run_gamma_ray_loop(
     outer_velocities = model.v_outer.to("cm/s").value
     ejecta_volume = model.volume.to("cm^3").value
     shell_masses = model.volume * model.density
+    number_of_shells = len(shell_masses)
     raw_isotope_abundance = model.composition.raw_isotope_abundance.sort_values(
         by=["atomic_number", "mass_number"], ascending=False
     )
@@ -180,15 +181,11 @@ def run_gamma_ray_loop(
     # Need to get the strings for the isotopes without the dashes
     taus = make_isotope_string_tardis_like(taus)
 
-    # Get only the gamma rays
-    isotope_decay_df_gamma = isotope_decay_df[
-        isotope_decay_df["radiation"] == "g"
-    ]
-    total_energy_gamma = isotope_decay_df_gamma["decay_energy_erg"].sum()
+    total_energy = isotope_decay_df['decay_energy_erg'].sum()
 
-    energy_per_packet = total_energy_gamma / num_decays
+    energy_per_packet = total_energy / num_decays
 
-    logger.info(f"Total energy in gamma-rays is {total_energy_gamma}")
+    logger.info(f"Total energy in gamma-rays is {total_energy}")
     logger.info(f"Energy per packet is {energy_per_packet}")
 
     packet_source = GammaRayPacketSource(
@@ -209,8 +206,6 @@ def run_gamma_ray_loop(
         cumulative_decays_df, num_decays, seed
     )
 
-    return packet_collection
-
     logger.info("Creating packet list")
     packets = []
     packets = [
@@ -224,12 +219,15 @@ def run_gamma_ray_loop(
             packet_collection.status[i],
             packet_collection.shell[i],
             packet_collection.time_current[i],
+            packet_collection.positron_fraction[i],
         )
         for i in range(num_decays)
     ]
 
     energy_bins = np.logspace(2, 3.8, spectrum_bins)
     energy_out = np.zeros((len(energy_bins - 1), time_steps))
+    energy_deposited = np.zeros((number_of_shells, time_steps))
+    positron_energy = np.zeros((number_of_shells, time_steps))
     packets_info_array = np.zeros((int(num_decays), 8))
     iron_group_fraction = iron_group_fraction_per_shell(model)
 
@@ -248,6 +246,8 @@ def run_gamma_ray_loop(
     (
         energy_out,
         packets_array,
+        energy_deposited,
+        positron_energy,
     ) = gamma_packet_loop(
         packets,
         grey_opacity,
@@ -258,11 +258,12 @@ def run_gamma_ray_loop(
         iron_group_fraction.to_numpy(),
         inner_velocities,
         outer_velocities,
-        times,
         dt_array,
         effective_time_array,
         energy_bins,
         energy_out,
+        energy_deposited,
+        positron_energy,
         packets_info_array,
     )
 
@@ -284,4 +285,13 @@ def run_gamma_ray_loop(
         data=energy_out, columns=effective_time_array, index=energy_bins
     )
 
-    return escape_energy, packets_df_escaped
+    # deposited energy in ergs/s
+    deposited_energy = pd.DataFrame(
+        data=energy_deposited, columns=times[:-1]
+    )
+    # positron energy in ergs/s
+    positron_energy = pd.DataFrame(
+        data=positron_energy, columns=times[:-1]
+    )
+
+    return escape_energy, packets_df_escaped, deposited_energy, positron_energy

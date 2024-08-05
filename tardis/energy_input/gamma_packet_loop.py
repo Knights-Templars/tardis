@@ -36,8 +36,6 @@ from tardis.opacities.opacities import (
     pair_creation_opacity_calculation,
     photoabsorption_opacity_calculation,
 )
-from tardis.energy_input.gamma_ray_estimators import deposition_estimator_kasen
-
 
 @njit(**njit_dict_no_parallel)
 def gamma_packet_loop(
@@ -50,11 +48,12 @@ def gamma_packet_loop(
     iron_group_fraction_per_shell,
     inner_velocities,
     outer_velocities,
-    times,
     dt_array,
     effective_time_array,
     energy_bins,
     energy_out,
+    energy_deposited,
+    positron_energy,
     packets_info_array,
 ):
     """Propagates packets through the simulation
@@ -110,13 +109,11 @@ def gamma_packet_loop(
     scattered_packets = 0
     packet_count = len(packets)
 
-    print("Packet count:", packet_count)
-
+    print (f"Packet count: {packet_count}")
     for i in range(packet_count):
         packet = packets[i]
         time_index = get_index(packet.time_current, effective_time_array)
         if time_index < 0:
-            print(packet.time_current, time_index)
             raise ValueError("Packet time index less than 0!")
 
         scattered = False
@@ -236,6 +233,9 @@ def gamma_packet_loop(
 
                 packet, ejecta_energy_gained = process_packet_path(packet)
 
+                energy_deposited[packet.shell, time_index] += ejecta_energy_gained / dt
+                positron_energy[packet.shell, time_index] += packet.positron_fraction * ejecta_energy_gained / dt
+
                 if packet.status == GXPacketStatus.PHOTOABSORPTION:
                     # Packet destroyed, go to the next packet
                     break
@@ -280,12 +280,14 @@ def gamma_packet_loop(
                 ]
             )
 
-    print("Escaped packets:", escaped_packets)
-    print("Scattered packets:", scattered_packets)
+    #logging.info("Escaped packets: %d", escaped_packets)
+    #logging.info("Scattered packets: %d", scattered_packets)
 
     return (
         energy_out,
         packets_info_array,
+        energy_deposited,
+        positron_energy
     )
 
 
