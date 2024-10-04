@@ -11,6 +11,15 @@ from tardis.energy_input.gamma_ray_interactions import (
     pair_creation_packet,
     scatter_type,
 )
+
+from tardis.energy_input.gamma_ray_transport import (
+    calculate_ejecta_velocity_volume,
+    get_taus,
+    iron_group_fraction_per_shell,
+)
+
+from tardis.energy_input.gamma_ray_packet_source import GammaRayPacketSource
+
 from tardis.energy_input.GXPacket import GXPacketStatus
 from tardis.energy_input.util import (
     C_CGS,
@@ -27,6 +36,8 @@ from tardis.opacities.opacities import (
     photoabsorption_opacity_calculation,
 )
 from tardis.transport.montecarlo import njit_dict_no_parallel
+
+from tardis.energy_input.util import make_isotope_string_tardis_like
 
 
 @njit(**njit_dict_no_parallel)
@@ -45,8 +56,8 @@ def gamma_packet_loop(
     effective_time_array,
     energy_bins,
     energy_out,
+    total_energy,
     energy_deposited_gamma,
-    energy_deposited_positron,
     packets_info_array,
 ):
     """Propagates packets through the simulation
@@ -106,13 +117,10 @@ def gamma_packet_loop(
 
     for i in range(packet_count):
         packet = packets[i]
-        time_index = get_index(packet.time_current, times)
-        energy_deposited_positron[
-            packet.shell, time_index
-        ] += packet.positron_energy
+        time_index = packet.time_index
 
         if time_index < 0:
-            print(packet.time_current, time_index)
+            print(packet.time_start, time_index)
             raise ValueError("Packet time index less than 0!")
 
         scattered = False
@@ -129,7 +137,7 @@ def gamma_packet_loop(
                 doppler_factor = doppler_factor_3d(
                     packet.direction,
                     packet.location,
-                    effective_time_array[time_index],
+                    times[time_index],
                 )
 
                 kappa = kappa_calculation(comoving_energy)
@@ -210,7 +218,7 @@ def gamma_packet_loop(
                 distance_interaction, distance_boundary, distance_time
             )
 
-            packet.time_current += distance / C_CGS
+            packet.time_start += distance / C_CGS
 
             packet = move_packet(packet, distance)
 
@@ -223,7 +231,7 @@ def gamma_packet_loop(
                 else:
                     packet.shell = get_index(
                         packet.get_location_r(),
-                        inner_velocities * effective_time_array[time_index],
+                        inner_velocities * times[time_index],
                     )
 
             elif distance == distance_interaction:
@@ -234,10 +242,13 @@ def gamma_packet_loop(
                 )
 
                 packet, ejecta_energy_gained = process_packet_path(packet)
+                #print (ejecta_energy_gained)
 
                 energy_deposited_gamma[
                     packet.shell, time_index
                 ] += ejecta_energy_gained
+                
+                total_energy[packet.shell, time_index] += ejecta_energy_gained
 
                 if packet.status == GXPacketStatus.PHOTOABSORPTION:
                     # Packet destroyed, go to the next packet
@@ -292,7 +303,7 @@ def gamma_packet_loop(
         energy_out,
         packets_info_array,
         energy_deposited_gamma,
-        energy_deposited_positron,
+        total_energy,
     )
 
 
@@ -329,7 +340,7 @@ def process_packet_path(packet):
             doppler_factor = doppler_factor_3d(
                 packet.direction,
                 packet.location,
-                packet.time_current,
+                packet.time_start,
             )
 
             packet.nu_rf = packet.nu_cmf / doppler_factor
@@ -348,3 +359,413 @@ def process_packet_path(packet):
         ejecta_energy_gained = packet.energy_cmf
 
     return packet, ejecta_energy_gained
+
+
+@njit(**njit_dict_no_parallel)
+def new_gamma_packet_transport(packets, 
+                               packet_times,
+                               counts,
+                               electron_number_density_time,
+                               mass_density_time,
+                               iron_group_fraction_per_shell,
+                               inner_velocities,
+                               outer_velocities,
+                               energy_deposited_gamma,
+                               total_energy,
+                               times, 
+                               effective_time_array):
+    
+
+    #packet_times, counts = np.unique(times_current, return_counts=True)
+
+    escaped_packets = 0
+    for i in range(len(packet_times)):
+
+        for j in counts:
+            
+            packet = packets[j]
+            time_index = packet.time_index
+
+            
+            while packet.status == GXPacketStatus.IN_PROCESS:
+                #Get delta-time value for this step
+                #dt = times[time_index + 1] - times[time_index]
+
+                comoving_energy = H_CGS_KEV * packet.nu_cmf
+
+                doppler_factor = doppler_factor_3d(
+                    packet.direction,
+                    packet.location,
+                    packet_times[i],
+                )
+
+                kappa = kappa_calculation(comoving_energy)
+
+                
+                compton_opacity = compton_opacity_calculation(
+                        comoving_energy,
+                        electron_number_density_time[packet.shell, i],
+                    )
+                
+                photoabsorption_opacity = (
+                        photoabsorption_opacity_calculation(
+                            comoving_energy,
+                            mass_density_time[packet.shell, i],
+                            iron_group_fraction_per_shell[packet.shell],
+                        )
+                    )
+                
+                pair_creation_opacity = pair_creation_opacity_calculation(
+                        comoving_energy,
+                        mass_density_time[packet.shell, i],
+                        iron_group_fraction_per_shell[packet.shell],
+                    )
+                
+                total_opacity = (
+                compton_opacity
+                + photoabsorption_opacity
+                + pair_creation_opacity
+                )   * doppler_factor
+
+                packet.tau = -np.log(np.random.random())
+
+                (
+                distance_interaction,
+                distance_boundary,
+                distance_time,
+                shell_change,
+                ) = distance_trace(
+                packet,
+                inner_velocities,
+                outer_velocities,
+                total_opacity,
+                times[time_index],                            # t_{n}
+                times[time_index + 1],                       # t_{n+1}  
+                )
+
+                distance = min(
+                distance_interaction, distance_boundary, distance_time
+                )
+
+                packet.time_start += distance / C_CGS
+
+                packet = move_packet(packet, distance)
+
+                if distance == distance_time:
+                    time_index += 1
+
+                    if time_index > len(effective_time_array) - 1:
+                    # Packet ran out of time
+                        packet.status = GXPacketStatus.END
+                    else:
+                        packet.shell = get_index(
+                            packet.get_location_r(),
+                            inner_velocities * times[time_index],
+                        )
+
+                elif distance == distance_interaction:
+
+                    packet.status = scatter_type(
+                    compton_opacity,
+                    photoabsorption_opacity,
+                    total_opacity,
+                    )
+
+                    packet, ejecta_energy_gained = process_packet_path(packet)
+
+                    energy_deposited_gamma[
+                    packet.shell, time_index
+                    ] += ejecta_energy_gained
+                
+                    total_energy[packet.shell, time_index] += ejecta_energy_gained
+
+                    if packet.status == GXPacketStatus.PHOTOABSORPTION:
+                        # Packet destroyed, go to the next packet
+                        break
+                    else:
+                        packet.status = GXPacketStatus.IN_PROCESS  
+
+                else:
+                    packet.shell += shell_change
+
+                    if packet.shell > len(mass_density_time[:, 0]) - 1:
+                        packet.status = GXPacketStatus.ESCAPED
+                        escaped_packets += 1
+                    elif packet.shell < 0:
+                        packet.energy_rf = 0.0
+                        packet.energy_cmf = 0.0
+                        packet.status = GXPacketStatus.END
+
+    return energy_deposited_gamma, total_energy
+ 
+
+#@njit(**njit_dict_no_parallel)
+def single_packet_transport(packet,
+                            t_current,
+                            dt,
+                            grey_opacity,
+                            electron_number_density_time,
+                            mass_density_time,
+                            iron_group_fraction_per_shell,
+                            inner_velocities,
+                            outer_velocities,
+                            times
+                            ):
+
+    # propagate a single packet through the ejecta, until it escapes, it absorbs, 
+    # or the particular time step ends.
+    
+    
+    # stopping time of the current time step
+
+    t_step_end = t_current + dt
+
+    # In process status
+    
+    stop = False
+
+    while not stop:
+
+        comoving_energy = H_CGS_KEV * packet.nu_cmf
+
+        if grey_opacity < 0:
+
+            doppler_factor = doppler_factor_3d(
+                    packet.direction,
+                    packet.location,
+                    packet.time_start,
+                )
+            
+            kappa = kappa_calculation(comoving_energy)
+
+            # ARTIS threshold for Thomson scattering
+            if kappa < 1e-2:
+                compton_opacity = (
+                    SIGMA_T
+                    * electron_number_density_time[packet.shell, packet.time_index]
+                )
+
+            else:
+                compton_opacity = compton_opacity_calculation(
+                    comoving_energy,
+                    electron_number_density_time[packet.shell, packet.time_index],
+                )
+            
+            photoabsorption_opacity = (
+                        photoabsorption_opacity_calculation(
+                            comoving_energy,
+                            mass_density_time[packet.shell, packet.time_index],
+                            iron_group_fraction_per_shell[packet.shell],
+                        )
+                    )
+            
+            pair_creation_opacity = pair_creation_opacity_calculation(
+                        comoving_energy,
+                        mass_density_time[packet.shell, packet.time_index],
+                        iron_group_fraction_per_shell[packet.shell],
+                    )
+            
+        else:
+
+            compton_opacity = 0.0
+            pair_creation_opacity = 0.0
+            photoabsorption_opacity = (
+                grey_opacity * mass_density_time[packet.shell, packet.time_index]
+            )
+
+        # convert opacities to rest frame
+
+        total_opacity = (
+            compton_opacity
+            + photoabsorption_opacity
+            + pair_creation_opacity
+        ) * doppler_factor
+
+
+        packet.tau = -np.log(np.random.random())
+
+
+        (
+        distance_interaction,
+        distance_boundary,
+        distance_time,
+        shell_change,
+        ) = distance_trace(
+        packet,
+        inner_velocities,
+        outer_velocities,
+        total_opacity,
+        packet.time_start,
+        t_step_end)
+
+        distance = min(
+            distance_interaction, distance_boundary, distance_time
+        )
+
+        packet.time_start += distance / C_CGS
+
+        packet = move_packet(packet, distance)
+
+        if distance == distance_interaction:
+
+            packet.status = scatter_type(
+                compton_opacity,
+                photoabsorption_opacity,
+                total_opacity,
+            )
+
+            #packet, ejecta_energy_gained = process_packet_path(packet)
+
+            if packet.status == GXPacketStatus.PHOTOABSORPTION:
+                # Packet destroyed, go to the next packet
+                stop = True 
+                
+            elif packet.status == GXPacketStatus.COMPTON_SCATTER:
+                 stop = False
+            else:
+                packet.status = GXPacketStatus.IN_PROCESS
+                stop = False
+
+        elif distance == distance_time:
+
+            stop = True
+            if t_step_end > times[-1]:
+                # Packet ran out of time
+                packet.status = GXPacketStatus.END
+                stop = True 
+
+            packet.shell = get_index(
+                packet.get_location_r(),
+                inner_velocities * t_step_end,
+            )
+            packet.status = GXPacketStatus.IN_PROCESS
+
+           
+
+        else:
+
+            packet.shell += shell_change
+
+            if packet.shell > len(mass_density_time[:, 0]) - 1:
+                #rest_energy = packet.nu_rf * H_CGS_KEV
+                packet.status = GXPacketStatus.ESCAPED
+                stop = True
+            
+            elif packet.shell < 0:
+                packet.energy_rf = 0.0
+                packet.energy_cmf = 0.0
+                packet.status = GXPacketStatus.END
+                stop = True
+
+    return packet
+
+
+#@njit(**njit_dict_no_parallel)
+def propagate_packet_over_time(t_start,
+                               t_end,
+                               n_packets,
+                               packets,
+                               grey_opacity,
+                               electron_number_density_time,
+                               mass_density_time,
+                               iron_group_fraction_per_shell,
+                               inner_velocities,
+                               outer_velocities,
+                               times,
+                               ):
+
+    n_alive = 0
+    n_escaped = 0
+    n_end = 0
+    n_deposited = 0
+
+    # this is assuming all the packets have time within the time step
+    packets_active = np.zeros(n_packets, dtype=object)
+    for p in range(n_packets):
+
+        packet = packets[p]
+
+        if not (packet.time_start < t_start) or packet.time_start < t_end:
+
+            packet.time_start += np.random.random() * (t_end - t_start)
+
+            dt = t_end - t_start
+
+            if packet.status == GXPacketStatus.IN_PROCESS:
+
+                packet = single_packet_transport(packet,
+                                             t_start,
+                                             dt,
+                                             grey_opacity,
+                                             electron_number_density_time,
+                                             mass_density_time,
+                                             iron_group_fraction_per_shell,
+                                             inner_velocities,
+                                             outer_velocities,
+                                             times,
+                                             )
+            
+                if packet.status == GXPacketStatus.IN_PROCESS:
+
+                    n_alive += 1
+
+                    # Store the packet back in the list
+
+                    packets_active[p] = packet
+
+                elif packet.status == GXPacketStatus.ESCAPED:
+
+                    n_escaped += 1
+
+                elif packet.status == GXPacketStatus.END:
+
+                    n_end += 1
+
+                else:
+                    
+                    n_deposited += 1
+
+    print(f"Alive packets after the current time step of {t_start:.2f} and {t_end}: {n_alive:d}")
+    print ("Escaped packets: ", n_escaped)
+    print ("End packets: ", n_end)
+    print ("Deposited packets: ", n_deposited)
+
+    return packets_active, n_alive, n_escaped, n_end, n_deposited
+
+    
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+            
+        
+
+            
+
+        
+            
+
+
+        
+
+
+
+    
+
+
+
+
+
+
+

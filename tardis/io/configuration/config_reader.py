@@ -263,12 +263,17 @@ class Configuration(ConfigurationNameSpace, ConfigWriterMixin):
             supernova_section = validated_config_dict["supernova"]
 
             time_explosion = supernova_section["time_explosion"]
+            model_isotope_time_0 = supernova_section['model_isotope_time_0']
             luminosity_wavelength_start = supernova_section[
                 "luminosity_wavelength_start"
             ]
             luminosity_wavelength_end = supernova_section[
                 "luminosity_wavelength_end"
             ]
+            if model_isotope_time_0.value <= 0:
+                raise ValueError(
+                    f"Time Of Explosion is Invalid, {model_isotope_time_0}"
+                )
             if time_explosion.value <= 0:
                 raise ValueError(
                     f"Time Of Explosion is Invalid, {time_explosion}"

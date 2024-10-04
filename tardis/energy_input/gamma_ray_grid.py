@@ -108,7 +108,8 @@ def distance_trace(
     )
 
     distance_interaction = photon.tau / total_opacity
-    distance_time = (next_time - photon.time_current) * C_CGS
+    distance_time = (next_time - photon.time_start) * C_CGS
+    #distance_time = (next_time - current_time) * C_CGS
     return distance_interaction, distance_boundary, distance_time, shell_change
 
 
@@ -135,7 +136,7 @@ def move_packet(packet, distance):
     packet.location = location_new
 
     doppler_factor = doppler_factor_3d(
-        packet.direction, packet.location, packet.time_current
+        packet.direction, packet.location, packet.time_start
     )
 
     packet.nu_cmf = packet.nu_rf * doppler_factor

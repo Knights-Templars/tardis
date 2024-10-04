@@ -9,6 +9,9 @@ properties:
   time_explosion:
     type: quantity
     description: time since explosion
+  model_isotope_time_0:
+    type: quantity
+    description: time since explosion for isotopic decay
   distance:
     type: quantity
     description: distance to supernova - **THIS IS DEPRECATED AND NOT IN USE**

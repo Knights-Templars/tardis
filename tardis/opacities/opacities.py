@@ -428,6 +428,7 @@ def pair_creation_opacity_calculation(
 
     # Conditions prevent divide by zero
     # Ambwani & Sutherland (1988)
+    # Transform photon energy to MeV
     if energy > 1022 and energy < 1500:
         opacity = multiplier * 1.0063 * (energy / 1000 - 1.022) * 1.0e-27
     elif energy >= 1500:
