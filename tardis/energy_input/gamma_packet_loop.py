@@ -58,6 +58,8 @@ def gamma_packet_loop(
     energy_out,
     total_energy,
     energy_deposited_gamma,
+    total_gamma_packet_opacity,
+    opacity_info_array,
     packets_info_array,
 ):
     """Propagates packets through the simulation
@@ -198,6 +200,10 @@ def gamma_packet_loop(
                 + pair_creation_opacity
             ) * doppler_factor
 
+            # Total rest frame opacity for the packet
+            #
+
+
             packet.tau = -np.log(np.random.random())
 
             (
@@ -249,6 +255,20 @@ def gamma_packet_loop(
                 ] += ejecta_energy_gained
                 
                 total_energy[packet.shell, time_index] += ejecta_energy_gained
+                total_gamma_packet_opacity[packet.shell, time_index] += total_opacity
+
+                opacity_info_array[i] = np.array(
+                    [i, 
+                     packet.nu_rf * H_CGS_KEV,
+                     packet.energy_cmf,
+                     packet.get_location_r(),
+                     packet.time_start,
+                     packet.status,
+                     compton_opacity,
+                     photoabsorption_opacity,
+                     pair_creation_opacity,
+                     total_opacity]
+                )
 
                 if packet.status == GXPacketStatus.PHOTOABSORPTION:
                     # Packet destroyed, go to the next packet
@@ -304,6 +324,8 @@ def gamma_packet_loop(
         packets_info_array,
         energy_deposited_gamma,
         total_energy,
+        total_gamma_packet_opacity,
+        opacity_info_array
     )
 
 

@@ -882,7 +882,8 @@ class GammaRayPacketSource(BasePacketSource):
         ].sum()
         # TODO: Possibly move this for loop
         for i, isotope in enumerate(isotopes):
-            isotope_positron_fraction[i] = (
+            if isotope in positron_energy_per_isotope:  # Check if isotope is in the dataframe
+                isotope_positron_fraction[i] = (
                 positron_energy_per_isotope[isotope]
                 / gamma_energy_per_isotope[isotope]
             )

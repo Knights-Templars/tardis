@@ -145,12 +145,12 @@ def run_gamma_ray_loop(
                 values, axis=0
             )
         else:
-            model.composition.elemental_number_density.loc[atom_number] = values
+            model.elemental_number_density.loc[atom_number] = values
     
 
     # Electron number density
-    electron_number_density = model.composition.elemental_number_density.mul(
-        model.composition.elemental_number_density.index,
+    electron_number_density = model.elemental_number_density.mul(
+        model.elemental_number_density.index,
         axis=0,
     ).sum()
     print ("The electron number density is ", electron_number_density)
@@ -231,10 +231,23 @@ def run_gamma_ray_loop(
         for i in range(num_decays)
     ]
     time_current = []
+    packet_opacity_array = np.zeros((num_decays, 10))
     for i, p in enumerate(packets):
         total_energy[p.shell, p.time_index] \
         += isotope_positron_fraction[i] * energy_per_packet
         time_current.append(p.time_start)
+
+        packet_opacity_array[i] = np.array([
+        i, 
+        p.energy_rf,
+        p.energy_cmf,
+        p.get_location_r(),
+        p.time_start,
+        int(p.status),
+        0,
+        0,
+        0,
+        0])
         #print (isotope_positron_fraction[i])
     
     #return packets, time_current
@@ -280,6 +293,7 @@ def run_gamma_ray_loop(
     energy_deposited = np.zeros((number_of_shells, len(times) - 1))
     packets_info_array = np.zeros((int(num_decays), 8))
     iron_group_fraction = iron_group_fraction_per_shell(model)
+    total_gamma_packet_opacity = np.zeros((number_of_shells, len(times) - 1))   
     #print ("The iron group fraction is ", iron_group_fraction)
 
     logger.info("Entering the main gamma-ray loop")
@@ -300,6 +314,8 @@ def run_gamma_ray_loop(
         packets_array,
         energy_deposited_gamma,
         total_energy,
+        total_opacity,
+        total_gamma_packet_opacity
     ) = gamma_packet_loop(
         packets,
         grey_opacity,
@@ -317,6 +333,8 @@ def run_gamma_ray_loop(
         energy_out,
         total_energy,
         energy_deposited,
+        total_gamma_packet_opacity,
+        packet_opacity_array,
         packets_info_array,
     )
 
@@ -334,6 +352,21 @@ def run_gamma_ray_loop(
         ],
     )
 
+    opacity_df = pd.DataFrame(
+        data=total_gamma_packet_opacity,
+        columns=["packet_index",
+                 "nu_rf",
+                 "energy_cmf",
+                 "location_r",
+                 "time_start",
+                 "status",
+                 "compton_opacity",
+                 "photoabsorption_opacity",
+                 "pair_creation_opacity",
+                 "total_opacity"],
+
+    )
+
     escape_energy = pd.DataFrame(
         data=energy_out, columns=times[:-1], index=energy_bins
     )
@@ -346,6 +379,7 @@ def run_gamma_ray_loop(
     total_energy = pd.DataFrame(
         data=total_energy, columns=times[:-1]
     )
+    total_opacity = pd.DataFrame(data=total_opacity, columns=times[:-1])
 
     print ("Total positron energy is ", total_energy.sum().sum())    
 
@@ -357,6 +391,8 @@ def run_gamma_ray_loop(
         packets_df_escaped,
         deposited_energy,
         total_deposited_energy,
+        total_opacity,
+        opacity_df,
     )
 
 
