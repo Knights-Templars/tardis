@@ -212,6 +212,13 @@ def time_evolve_mass_fraction(raw_isotope_mass_fraction, time_array):
     return time_evolved_isotope_mass_fraction
 
 
+def calculate_mass_fraction_with_time(raw_isotope_mass_fraction, time_array):
+
+    time_evolved_isotope_mass_fraction = IsotopicMassFraction(raw_isotope_mass_fraction).decay_with_time(time_array)
+
+    return time_evolved_isotope_mass_fraction
+
+
 def calculate_initial_decay_energy(raw_isotope_mass_fraction, shell_masses, gamma_ray_lines, time_start):
 
     isotope_dict = create_isotope_dicts(
@@ -274,6 +281,7 @@ def time_evolve_cumulative_decay(
 
         initial_isotope_mass_fraction = decayed_isotope_mass_fraction
 
+
     time_keys = list(zip(time_array, t_start_index))
 
     time_evolved_decay_df = pd.concat(
@@ -281,6 +289,54 @@ def time_evolve_cumulative_decay(
     )
 
     return time_evolved_decay_df
+
+
+def time_evolve_cumulative_decay_test(
+    raw_isotope_mass_fraction, initial_energy, shell_masses, gamma_ray_lines, time_array
+):
+    """
+    Function to calculate the total decays for each isotope for each shell at each time step.
+
+    Parameters
+    ----------
+    raw_isotope_mass_fraction : pd.DataFrame
+        isotope abundance in mass fractions.
+    shell_masses : numpy.ndarray
+        shell masses in units of g
+    gamma_ray_lines : pd.DataFrame
+        gamma ray lines from nndc stored as a pandas dataframe.
+    time_array : numpy.ndarray
+        array of time steps in days.
+
+    Returns
+    -------
+    time_evolve_decay_df : pd.DataFrame
+        dataframe of isotopes for each shell with their decay mode, number of decays, radiation type,
+        radiation energy and radiation intensity at each time step.
+
+    """
+
+    initial_isotope_mass_fraction = raw_isotope_mass_fraction
+    dt = np.diff(time_array)
+    t_start = time_array[:-1]
+    t_stop = time_array[1:]
+    t_start_index = np.arange(len(t_start))  # create index for each time step
+
+    # Compute decay iteratively using list comprehension
+    isotope_mass_fraction_list = [
+        IsotopicMassFraction(initial_isotope_mass_fraction := IsotopicMassFraction(initial_isotope_mass_fraction).decay(time))
+        for time in dt
+    ]
+    
+    # Create MultiIndex keys and concatenate data
+    time_keys = pd.MultiIndex.from_arrays([t_start, t_stop, t_start_index], names=["time_start", "time_end", "time_index"])
+
+    # Concatenate the mass fractions into a DataFrame with the time MultiIndex
+    time_evolved_isotope_mass_fraction = pd.concat(
+        isotope_mass_fraction_list, keys=time_keys
+    )
+
+    return time_evolved_isotope_mass_fraction
 
 
 

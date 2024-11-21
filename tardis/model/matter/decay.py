@@ -98,7 +98,7 @@ class IsotopicMassFraction(pd.DataFrame):
         t_second = (
             u.Quantity(t, u.day).to(u.s).value - self.time_0.to(u.s).value
         )
-        logger.info(f"Decaying abundances for {t_second} seconds")
+        logger.info(f"Decaying abundances for {t_second / 86400.0} days")
         if t_second < 0:
             logger.warning(
                 f"Decay time {t_second} is negative. This could indicate a miss-specified input model."
@@ -111,6 +111,42 @@ class IsotopicMassFraction(pd.DataFrame):
             df.ge(0.0).all().all()
         ), "Negative abundances detected. Please make sure your input abundances are correct."
         return df
+    
+
+    def decay_with_time(self, t_array):
+
+        """
+        Decay the Model
+        
+        Parameters
+        ----------
+        t : np.array or astropy.units.Quantity
+            if np.array it will be understood as days
+        
+        Returns
+        -------
+
+        pandas.DataFrame
+            Decayed abundances
+
+        """
+
+        #t_seconds_array = u.Quantity(t_array, u.day).to(u.s).value - self.time_0.to(u.s).value
+        #logger.info(f"Decaying abundances for {t_seconds_array} seconds")
+        #if t_seconds_array.min() < 0:
+        #    logger.warning(
+        #        f"Decay time {t_seconds_array.min()} is negative. This could indicate a miss-specified input model."
+        #        f" A negative decay time can potentially lead to negative abundances."
+        #    )
+
+        decay_at_time = lambda t: self.decay(t)
+
+        decayed_dataframes = list(map(decay_at_time, t_array))
+
+        return {time: df for time, df in zip(t_array, decayed_dataframes)}
+
+
+
 
     def as_atoms(self):
         """
