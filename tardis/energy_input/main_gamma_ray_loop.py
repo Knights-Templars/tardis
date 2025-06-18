@@ -215,22 +215,30 @@ def run_gamma_ray_loop(
     # Copy the positron energy to a new dataframe
     positron_energy_df = pd.DataFrame(data=total_energy.copy(), columns=times[:-1])
 
-    energy_bins = np.logspace(2, 3.8, spectrum_bins)
+    energy_bins = np.logspace(2, 4, spectrum_bins)
     energy_out = np.zeros((len(energy_bins - 1), len(times) - 1))
     energy_out_cosi = np.zeros((len(energy_bins - 1), len(times) - 1))
     energy_deposited = np.zeros((number_of_shells, len(times) - 1))
-    packets_info_array = np.zeros((int(num_decays), 8))
+    packets_info_array = np.zeros((int(num_decays), 7))
     iron_group_fraction = iron_group_fraction_per_shell(model)
+    escape_luminosity = np.zeros((number_of_shells, len(times) - 1))
 
     logger.info("Entering the main gamma-ray loop")
 
     total_cmf_energy = 0
     total_rf_energy = 0
+    status_end = 0
+    status_escaped = 0
+    status_absorbed = 0
+    status_inprocess = 0
+    status_compton = 0
+    status_pair = 0
 
     for p in packets:
         total_cmf_energy += p.energy_cmf
         total_rf_energy += p.energy_rf
 
+    logger.info(f"Total number of packets is {len(packets)}")
     logger.info(f"Total CMF energy is {total_cmf_energy}")
     logger.info(f"Total RF energy is {total_rf_energy}")
 
@@ -240,6 +248,7 @@ def run_gamma_ray_loop(
         packets_array,
         energy_deposited_gamma,
         total_energy,
+        escape_luminosity,
     ) = gamma_packet_loop(
         packets,
         grey_opacity,
@@ -257,6 +266,7 @@ def run_gamma_ray_loop(
         energy_out,
         energy_out_cosi,
         total_energy,
+        escape_luminosity,
         energy_deposited,
         packets_info_array,
     )
@@ -269,7 +279,6 @@ def run_gamma_ray_loop(
             "nu_cmf",
             "nu_rf",
             "energy_cmf",
-            "luminosity",
             "energy_rf",
             "shell_number",
         ],
@@ -292,9 +301,14 @@ def run_gamma_ray_loop(
         data=total_energy, columns=times[:-1]
     )
 
-    logger.info(f"Total energy deposited by gamma rays and positrons is {total_energy.sum().sum()}")
+    # luminosity of the packets that escaped in ergs/s
+    escape_luminosity = pd.DataFrame(
+        data=escape_luminosity, columns=times[:-1])
+
+    logger.info(f"Total energy deposited by gamma-rays and positrons is {total_energy.sum().sum()}")
 
     total_deposited_energy = total_energy / dt_array
+    #total_escaped_luminosity = escape_luminosity / dt_array
 
     return (
         escape_energy,
@@ -302,7 +316,7 @@ def run_gamma_ray_loop(
         packets_df_escaped,
         gamma_ray_deposited_energy,
         total_deposited_energy,
-        positron_energy_df
+        escape_luminosity,
     )
 
 

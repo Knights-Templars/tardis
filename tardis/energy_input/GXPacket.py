@@ -11,7 +11,6 @@ from tardis.energy_input.util import (
     H_CGS_KEV,
 )
 
-
 class GXPacketStatus(IntEnum):
     BETA_DECAY = -1
     COMPTON_SCATTER = 0

@@ -1,5 +1,6 @@
 import numpy as np
 from numba import njit
+import warnings
 
 from tardis.energy_input.GXPacket import GXPacketStatus
 from tardis.energy_input.util import (
@@ -221,14 +222,22 @@ def compton_scatter(photon, compton_angle):
 
     norm_theta = np.dot(final_compton_scattered_vector, comov_direction)
 
-    assert (
-        np.abs(norm_phi - 1) < 1e-8
-    ), "Error, norm of Compton scatter vector is not 1!"
+    #assert (
+    #    np.abs(norm_phi - 1) < 1e-8
+    #), "Error, norm of Compton scatter vector is not 1!"
 
-    assert (
-        np.abs(norm_theta - np.cos(compton_angle)) < 1e-8
-    ), "Error, difference between new vector angle and Compton angle is more than 0!"
+    #assert (
+    #    np.abs(norm_theta - np.cos(compton_angle)) < 1e-8
+    #), "Error, difference between new vector angle and Compton angle is more than 0!"
 
+    if np.abs(norm_phi - 1) > 1e-8:
+        print ("Error, norm of Compton scatter vector is not 1! Ending this packet")
+        print (np.abs(norm_phi - 1))
+        photon.status = GXPacketStatus.END
+
+    if np.abs(norm_theta - np.cos(compton_angle)) > 1e-8:
+        print ("Error, difference between new vector angle and Compton angle is more than 0! Ending this packet")
+        photon.status = GXPacketStatus.END
     # Calculate the angle aberration of the final direction
     final_direction = angle_aberration_gamma(
         final_compton_scattered_vector, photon.location, photon.time_start
