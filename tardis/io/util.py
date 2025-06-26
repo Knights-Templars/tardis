@@ -17,6 +17,7 @@ from astropy import units as u
 from astropy.utils.data import download_file
 
 from tardis import __path__ as tardis_path
+from tardis import __version__
 from tardis import constants as const
 
 if TYPE_CHECKING:
